@@ -1198,8 +1198,9 @@ func TestReconcileArgoCD_reconcileRole_dex_disabled(t *testing.T) {
 			sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 			cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 			r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+			reqState := &RequestState{}
 
-			assert.NoError(t, createNamespace(r, test.argoCD.Namespace, ""))
+			assert.NoError(t, createNamespace(r, reqState, test.argoCD.Namespace, ""))
 
 			rules := policyRuleForDexServer()
 			role := newRole(common.ArgoCDDexServerComponent, rules, test.argoCD)
@@ -1208,7 +1209,7 @@ func TestReconcileArgoCD_reconcileRole_dex_disabled(t *testing.T) {
 				test.setEnvFunc(t, "false")
 			}
 
-			_, err := r.reconcileRole(common.ArgoCDDexServerComponent, rules, test.argoCD)
+			_, err := r.reconcileRole(common.ArgoCDDexServerComponent, rules, test.argoCD, reqState)
 			assert.NoError(t, err)
 
 			// ensure role was created correctly
@@ -1222,7 +1223,7 @@ func TestReconcileArgoCD_reconcileRole_dex_disabled(t *testing.T) {
 				test.updateCrFunc(test.argoCD)
 			}
 
-			_, err = r.reconcileRole(common.ArgoCDDexServerComponent, rules, test.argoCD)
+			_, err = r.reconcileRole(common.ArgoCDDexServerComponent, rules, test.argoCD, reqState)
 			assert.NoError(t, err)
 
 			err = r.Get(context.TODO(), types.NamespacedName{Name: role.Name, Namespace: test.argoCD.Namespace}, role)
@@ -1275,7 +1276,9 @@ func TestReconcileArgoCD_reconcileRoleBinding_dex_disabled(t *testing.T) {
 			cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 			r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
-			assert.NoError(t, createNamespace(r, test.argoCD.Namespace, ""))
+			reqState := &RequestState{}
+
+			assert.NoError(t, createNamespace(r, reqState, test.argoCD.Namespace, ""))
 
 			rules := policyRuleForDexServer()
 			roleBinding := newRoleBindingWithname(common.ArgoCDDexServerComponent, test.argoCD)
@@ -1284,7 +1287,7 @@ func TestReconcileArgoCD_reconcileRoleBinding_dex_disabled(t *testing.T) {
 				test.setEnvFunc(t, "false")
 			}
 
-			assert.NoError(t, r.reconcileRoleBinding(common.ArgoCDDexServerComponent, rules, test.argoCD))
+			assert.NoError(t, r.reconcileRoleBinding(common.ArgoCDDexServerComponent, rules, test.argoCD, reqState))
 			assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: roleBinding.Name, Namespace: test.argoCD.Namespace}, roleBinding))
 
 			// ensure roleBinding was created correctly
@@ -1298,7 +1301,7 @@ func TestReconcileArgoCD_reconcileRoleBinding_dex_disabled(t *testing.T) {
 				test.updateCrFunc(test.argoCD)
 			}
 
-			err = r.reconcileRoleBinding(common.ArgoCDDexServerComponent, rules, test.argoCD)
+			err = r.reconcileRoleBinding(common.ArgoCDDexServerComponent, rules, test.argoCD, reqState)
 			assert.NoError(t, err)
 
 			err = r.Get(context.TODO(), types.NamespacedName{Name: roleBinding.Name, Namespace: test.argoCD.Namespace}, roleBinding)
@@ -1443,7 +1446,8 @@ func TestReconcileArgoCD_reconcileDexLegacySATokenSecrets(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, []client.Object{a}, []client.Object{a}, nil)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	reqState := &RequestState{}
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	_, err := r.reconcileServiceAccount(common.ArgoCDDefaultDexServiceAccountName, a)
 	assert.NoError(t, err)
@@ -1498,7 +1502,8 @@ func TestReconcileArgoCD_reconcileDexLegacySATokenSecrets_OperatorCreatedSecret(
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
 	cl := makeTestReconcilerClient(sch, []client.Object{a}, []client.Object{a}, nil)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	reqState := &RequestState{}
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	_, err := r.reconcileServiceAccount(common.ArgoCDDefaultDexServiceAccountName, a)
 	assert.NoError(t, err)
@@ -1556,7 +1561,8 @@ func TestReconcileArgoCD_reconcileDexLegacySATokenSecrets_IgnoresUnrelatedSecret
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, []client.Object{a}, []client.Object{a}, nil)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	reqState := &RequestState{}
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 	_, err := r.reconcileServiceAccount(common.ArgoCDDefaultDexServiceAccountName, a)
 	assert.NoError(t, err)
 

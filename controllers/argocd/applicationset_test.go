@@ -75,9 +75,11 @@ func TestReconcileApplicationSet_CreateDeployments(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	sa := v1.ServiceAccount{}
 
-	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 	deployment := &appsv1.Deployment{}
 	assert.NoError(t, r.Get(
@@ -89,7 +91,7 @@ func TestReconcileApplicationSet_CreateDeployments(t *testing.T) {
 		deployment))
 
 	// Ensure the created Deployment has the expected properties
-	checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a)
+	checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a, reqState)
 }
 
 func TestReconcileApplicationSet_RemovesResourcesWhenSpecApplicationSetNil(t *testing.T) {
@@ -103,8 +105,9 @@ func TestReconcileApplicationSet_RemovesResourcesWhenSpecApplicationSetNil(t *te
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 
 	deployName := nameWithSuffix("applicationset-controller", a)
 	saName := getServiceAccountName(a.Name, "applicationset-controller")
@@ -119,7 +122,7 @@ func TestReconcileApplicationSet_RemovesResourcesWhenSpecApplicationSetNil(t *te
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: svc.Name, Namespace: a.Namespace}, &v1.Service{}))
 
 	a.Spec.ApplicationSet = nil
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 
 	err := r.Get(context.TODO(), types.NamespacedName{Name: deployName, Namespace: a.Namespace}, &appsv1.Deployment{})
 	assert.True(t, apierrors.IsNotFound(err), "expected deployment deleted when spec.applicationSet is nil")
@@ -133,11 +136,11 @@ func TestReconcileApplicationSet_RemovesResourcesWhenSpecApplicationSetNil(t *te
 	assert.True(t, apierrors.IsNotFound(err), "expected service deleted when spec.applicationSet is nil")
 }
 
-func checkExpectedDeploymentValues(t *testing.T, r *ReconcileArgoCD, deployment *appsv1.Deployment, sa *v1.ServiceAccount, extraVolumes *[]v1.Volume, extraVolumeMounts *[]v1.VolumeMount, a *argoproj.ArgoCD) {
+func checkExpectedDeploymentValues(t *testing.T, r *ReconcileArgoCD, deployment *appsv1.Deployment, sa *v1.ServiceAccount, extraVolumes *[]v1.Volume, extraVolumeMounts *[]v1.VolumeMount, a *argoproj.ArgoCD, reqState *RequestState) {
 	assert.Equal(t, deployment.Spec.Template.Spec.ServiceAccountName, sa.Name)
 	appsetAssertExpectedLabels(t, &deployment.ObjectMeta)
 
-	containerWant, err := r.applicationSetContainer(a, false)
+	containerWant, err := r.applicationSetContainer(a, false, reqState)
 	assert.NoError(t, err)
 	want := []v1.Container{containerWant}
 
@@ -275,9 +278,11 @@ func TestReconcileApplicationSetProxyConfiguration(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	sa := v1.ServiceAccount{}
 
-	err := r.reconcileApplicationSetDeployment(a, &sa)
+	err := r.reconcileApplicationSetDeployment(a, &sa, reqState)
 	assert.NoError(t, err)
 
 	want := []v1.EnvVar{
@@ -364,10 +369,12 @@ func TestReconcileApplicationSetVolumes(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	sa := v1.ServiceAccount{}
 
 	// Reconcile the ApplicationSet deployment
-	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 	// Get the deployment after reconciliation
 	deployment := &appsv1.Deployment{}
@@ -384,7 +391,7 @@ func TestReconcileApplicationSetVolumes(t *testing.T) {
 	}
 
 	// Ensure the created Deployment has the expected properties
-	checkExpectedDeploymentValues(t, r, deployment, &sa, &extraVolumes, &extraVolumeMounts, a)
+	checkExpectedDeploymentValues(t, r, deployment, &sa, &extraVolumes, &extraVolumeMounts, a, reqState)
 }
 
 func TestReconcileApplicationSet_UpdateExistingDeployments(t *testing.T) {
@@ -418,9 +425,11 @@ func TestReconcileApplicationSet_UpdateExistingDeployments(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	sa := v1.ServiceAccount{}
 
-	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 	deployment := &appsv1.Deployment{}
 	assert.NoError(t, r.Get(
@@ -432,7 +441,7 @@ func TestReconcileApplicationSet_UpdateExistingDeployments(t *testing.T) {
 		deployment))
 
 	// Ensure the updated Deployment has the expected properties
-	checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a)
+	checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a, reqState)
 }
 
 func TestReconcileApplicationSet_Deployments_resourceRequirements(t *testing.T) {
@@ -446,9 +455,11 @@ func TestReconcileApplicationSet_Deployments_resourceRequirements(t *testing.T) 
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	sa := v1.ServiceAccount{}
 
-	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+	assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 	deployment := &appsv1.Deployment{}
 	assert.NoError(t, r.Get(
@@ -462,7 +473,7 @@ func TestReconcileApplicationSet_Deployments_resourceRequirements(t *testing.T) 
 	assert.Equal(t, deployment.Spec.Template.Spec.ServiceAccountName, sa.Name)
 	appsetAssertExpectedLabels(t, &deployment.ObjectMeta)
 
-	containerWant, err := r.applicationSetContainer(a, false)
+	containerWant, err := r.applicationSetContainer(a, false, reqState)
 	assert.NoError(t, err)
 	containerWantSlice := []v1.Container{containerWant}
 
@@ -572,6 +583,8 @@ func TestReconcileApplicationSet_Deployments_SpecOverride(t *testing.T) {
 			err := r.Create(context.Background(), cm, &client.CreateOptions{})
 			assert.NoError(t, err)
 
+			reqState := &RequestState{}
+
 			if test.argocdField.Image != "" {
 				a.Spec.Image = test.argocdField.Image
 				a.Spec.Version = test.argocdField.Version
@@ -580,7 +593,7 @@ func TestReconcileApplicationSet_Deployments_SpecOverride(t *testing.T) {
 			a.Spec.ApplicationSet = test.appSetField
 
 			sa := v1.ServiceAccount{}
-			assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+			assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 			deployment := &appsv1.Deployment{}
 			assert.NoError(t, r.Get(
@@ -593,7 +606,7 @@ func TestReconcileApplicationSet_Deployments_SpecOverride(t *testing.T) {
 
 			specImage := deployment.Spec.Template.Spec.Containers[0].Image
 			assert.Equal(t, test.expectedContainerImage, specImage)
-			checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a)
+			checkExpectedDeploymentValues(t, r, deployment, &sa, nil, nil, a, reqState)
 		})
 	}
 }
@@ -669,10 +682,12 @@ func TestReconcileApplicationSet_Deployments_Command(t *testing.T) {
 			err := r.Create(context.Background(), cm, &client.CreateOptions{})
 			assert.NoError(t, err)
 
+			reqState := &RequestState{}
+
 			a.Spec = test.argocdSpec
 
 			sa := v1.ServiceAccount{}
-			assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa))
+			assert.NoError(t, r.reconcileApplicationSetDeployment(a, &sa, reqState))
 
 			deployment := &appsv1.Deployment{}
 			assert.NoError(t, r.Get(
@@ -873,14 +888,15 @@ func TestReconcileApplicationSet_SourceNamespacesRBACCreation(t *testing.T) {
 			sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 			cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 			r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+			reqState := &RequestState{}
 			a.Spec = test.argoCDSpec
 
 			for _, ns := range append(test.existInNs, test.notExistInNs...) {
-				err := createNamespace(r, ns, "")
+				err := createNamespace(r, reqState, ns, "")
 				assert.NoError(t, err)
 			}
 
-			err := r.reconcileApplicationSetSourceNamespacesResources(a)
+			err := r.reconcileApplicationSetSourceNamespacesResources(a, reqState)
 			if test.expectErr {
 				assert.Error(t, err)
 			}
@@ -1148,8 +1164,9 @@ func TestArgoCDApplicationSetCommand(t *testing.T) {
 		"foo.scv.cluster.local.:6379",
 	}
 
+	reqState := &RequestState{}
 	deployment := &appsv1.Deployment{}
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 
 	assert.NoError(t, r.Get(
 		context.TODO(),
@@ -1171,7 +1188,7 @@ func TestArgoCDApplicationSetCommand(t *testing.T) {
 		"test",
 	}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 	assert.NoError(t, r.Get(
 		context.TODO(),
 		types.NamespacedName{
@@ -1189,7 +1206,7 @@ func TestArgoCDApplicationSetCommand(t *testing.T) {
 		"foo.scv.cluster.local.:6379",
 	}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 	assert.NoError(t, r.Get(
 		context.TODO(),
 		types.NamespacedName{
@@ -1203,7 +1220,7 @@ func TestArgoCDApplicationSetCommand(t *testing.T) {
 	// Remove all the command arguments that were added.
 	a.Spec.ApplicationSet.ExtraCommandArgs = []string{}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 	assert.NoError(t, r.Get(
 		context.TODO(),
 		types.NamespacedName{
@@ -1231,7 +1248,7 @@ func TestArgoCDApplicationSetCommand(t *testing.T) {
 		"value2",
 	}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 	assert.NoError(t, r.Get(
 		context.TODO(),
 		types.NamespacedName{
@@ -1255,6 +1272,8 @@ func TestArgoCDApplicationSetEnv(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+
+	reqState := &RequestState{}
 
 	defaultEnv := []v1.EnvVar{
 		{
@@ -1290,7 +1309,7 @@ func TestArgoCDApplicationSetEnv(t *testing.T) {
 	a.Spec.ApplicationSet.Env = customEnv
 
 	deployment := &appsv1.Deployment{}
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 
 	assert.NoError(t, r.Get(
 		context.TODO(),
@@ -1306,7 +1325,7 @@ func TestArgoCDApplicationSetEnv(t *testing.T) {
 	// Remove all the env vars that were added.
 	a.Spec.ApplicationSet.Env = []v1.EnvVar{}
 
-	assert.NoError(t, r.reconcileApplicationSetController(a))
+	assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 	assert.NoError(t, r.Get(
 		context.TODO(),
 		types.NamespacedName{
@@ -1493,11 +1512,13 @@ func TestArgoCDApplicationSet_setManagedApplicationSetSourceNamespaces(t *testin
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
-	err := r.setManagedApplicationSetSourceNamespaces(a)
+	reqState := &RequestState{}
+
+	err := r.setManagedApplicationSetSourceNamespaces(a, reqState)
 	assert.NoError(t, err)
 
-	assert.Equal(t, 1, len(r.ManagedApplicationSetSourceNamespaces))
-	assert.Contains(t, r.ManagedApplicationSetSourceNamespaces, "test-namespace-1")
+	assert.Equal(t, 1, len(reqState.ManagedApplicationSetSourceNamespaces))
+	assert.Contains(t, reqState.ManagedApplicationSetSourceNamespaces, "test-namespace-1")
 }
 
 func TestArgoCDApplicationSet_removeUnmanagedApplicationSetSourceNamespaceResources(t *testing.T) {
@@ -1522,13 +1543,15 @@ func TestArgoCDApplicationSet_removeUnmanagedApplicationSetSourceNamespaceResour
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
-	err := createNamespace(r, ns1, "")
+	reqState := &RequestState{}
+
+	err := createNamespace(r, reqState, ns1, "")
 	assert.NoError(t, err)
-	err = createNamespace(r, ns2, "")
+	err = createNamespace(r, reqState, ns2, "")
 	assert.NoError(t, err)
 
 	// create resources
-	err = r.reconcileApplicationSetSourceNamespacesResources(a)
+	err = r.reconcileApplicationSetSourceNamespacesResources(a, reqState)
 	assert.NoError(t, err)
 
 	// remove appset ns
@@ -1540,7 +1563,7 @@ func TestArgoCDApplicationSet_removeUnmanagedApplicationSetSourceNamespaceResour
 	}
 
 	// clean up unmanaged namespaces resources
-	err = r.removeUnmanagedApplicationSetSourceNamespaceResources(a)
+	err = r.removeUnmanagedApplicationSetSourceNamespaceResources(a, reqState)
 	assert.NoError(t, err)
 
 	// resources shouldn't exist in ns1
@@ -1629,12 +1652,14 @@ func TestReconcileApplicationSetSourceNamespacesResources_NonClusterConfigNamesp
 			cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 			r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+			reqState := &RequestState{}
+
 			// Initialize ManagedApplicationSetSourceNamespaces as empty map
-			r.ManagedApplicationSetSourceNamespaces = make(map[string]string)
+			reqState.ManagedApplicationSetSourceNamespaces = make(map[string]string)
 
 			// Create source namespaces so the function can process them
 			for _, ns := range []string{"foo", "bar"} {
-				err := createNamespace(r, ns, "")
+				err := createNamespace(r, reqState, ns, "")
 				assert.NoError(t, err)
 			}
 
@@ -1645,17 +1670,17 @@ func TestReconcileApplicationSetSourceNamespacesResources_NonClusterConfigNamesp
 				assert.False(t, argoutil.IsNamespaceClusterConfigNamespace(a.Namespace))
 			}
 
-			err := r.reconcileApplicationSetSourceNamespacesResources(a)
+			err := r.reconcileApplicationSetSourceNamespacesResources(a, reqState)
 			assert.NoError(t, err)
 
 			// Verify ManagedApplicationSetSourceNamespaces contains expected namespaces
 			if test.expectInManagedNamespaces {
-				assert.Equal(t, len(test.expectedManagedNamespaces), len(r.ManagedApplicationSetSourceNamespaces))
+				assert.Equal(t, len(test.expectedManagedNamespaces), len(reqState.ManagedApplicationSetSourceNamespaces))
 				for _, ns := range test.expectedManagedNamespaces {
-					assert.Contains(t, r.ManagedApplicationSetSourceNamespaces, ns)
+					assert.Contains(t, reqState.ManagedApplicationSetSourceNamespaces, ns)
 				}
 			} else {
-				assert.Empty(t, r.ManagedApplicationSetSourceNamespaces)
+				assert.Empty(t, reqState.ManagedApplicationSetSourceNamespaces)
 			}
 		})
 	}
@@ -1721,8 +1746,9 @@ func TestReconcileApplicationSet_LogFormatFallback(t *testing.T) {
 			sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 			cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 			r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+			reqState := &RequestState{}
 
-			assert.NoError(t, r.reconcileApplicationSetController(a))
+			assert.NoError(t, r.reconcileApplicationSetController(a, reqState))
 
 			deployment := &appsv1.Deployment{}
 			assert.NoError(t, r.Get(

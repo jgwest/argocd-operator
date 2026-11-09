@@ -277,6 +277,7 @@ func main() {
 		K8sClient:         k8sClient,
 		LocalUsers:        argocd.NewLocalUsersInfo(),
 		FipsConfigChecker: argoutil.NewLinuxFipsConfigChecker(),
+		ActiveInstanceMap: map[string]string{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ArgoCD")
 		os.Exit(1)

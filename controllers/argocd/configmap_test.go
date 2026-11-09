@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -46,8 +45,6 @@ import (
 	"github.com/argoproj-labs/argocd-operator/controllers/argoutil"
 	"github.com/argoproj-labs/argocd-operator/pkg/tlsprofile"
 )
-
-var _ reconcile.Reconciler = &ReconcileArgoCD{}
 
 func TestReconcileArgoCD_reconcileTLSCerts(t *testing.T) {
 	logf.SetLogger(ZapLogger(true))

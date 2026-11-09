@@ -59,6 +59,7 @@ func TestReconcileNamespaceManagement_FeatureEnabled(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
 	// Enable namespace management
 	os.Setenv(common.EnableManagedNamespace, "true")
@@ -72,13 +73,13 @@ func TestReconcileNamespaceManagement_FeatureEnabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Reconcile
-	err = r.reconcileNamespaceManagement(a)
+	err = r.reconcileNamespaceManagement(a, reqState)
 	assert.NoError(t, err)
 
 	// Allowed namespace is tracked; disallowed namespace is not
-	assert.Len(t, r.ManagedNamespaces.Items, 2)
+	assert.Len(t, reqState.ManagedNamespaces.Items, 2)
 	managedNames := map[string]bool{}
-	for _, ns := range r.ManagedNamespaces.Items {
+	for _, ns := range reqState.ManagedNamespaces.Items {
 		managedNames[ns.Name] = true
 	}
 	assert.True(t, managedNames["managed-ns"])
@@ -336,22 +337,23 @@ func TestReconcileNamespaceManagement_FeatureEnabled_NoCRs(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
 	os.Setenv(common.EnableManagedNamespace, "true")
 	defer os.Unsetenv(common.EnableManagedNamespace)
 
-	err := r.reconcileNamespaceManagement(a)
+	err := r.reconcileNamespaceManagement(a, reqState)
 	assert.NoError(t, err)
 
 	// Should only include ArgoCD namespace
 	found := false
-	for _, ns := range r.ManagedNamespaces.Items {
+	for _, ns := range reqState.ManagedNamespaces.Items {
 		if ns.Name == a.Namespace {
 			found = true
 		}
 	}
 	assert.True(t, found)
-	assert.Len(t, r.ManagedNamespaces.Items, 1)
+	assert.Len(t, reqState.ManagedNamespaces.Items, 1)
 }
 
 func TestReconcileNamespaceManagement_DifferentManagedBy(t *testing.T) {
@@ -381,18 +383,20 @@ func TestReconcileNamespaceManagement_DifferentManagedBy(t *testing.T) {
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
+	reqState := &RequestState{}
+
 	err := r.Create(context.Background(), nmOther)
 	assert.NoError(t, err)
 
 	os.Setenv(common.EnableManagedNamespace, "true")
 	defer os.Unsetenv(common.EnableManagedNamespace)
 
-	err = r.reconcileNamespaceManagement(a)
+	err = r.reconcileNamespaceManagement(a, reqState)
 	assert.NoError(t, err)
 
 	// Should only include ArgoCD namespace
-	assert.Len(t, r.ManagedNamespaces.Items, 1)
-	assert.Equal(t, "argocd", r.ManagedNamespaces.Items[0].Name)
+	assert.Len(t, reqState.ManagedNamespaces.Items, 1)
+	assert.Equal(t, "argocd", reqState.ManagedNamespaces.Items[0].Name)
 }
 
 func TestReconcileNamespaceManagement_ExplicitlyDisallowed(t *testing.T) {
@@ -418,6 +422,7 @@ func TestReconcileNamespaceManagement_ExplicitlyDisallowed(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 	logf.SetLogger(ZapLogger(true))
 
 	err := r.Create(context.Background(), nm)
@@ -426,11 +431,11 @@ func TestReconcileNamespaceManagement_ExplicitlyDisallowed(t *testing.T) {
 	os.Setenv(common.EnableManagedNamespace, "true")
 	defer os.Unsetenv(common.EnableManagedNamespace)
 
-	err = r.reconcileNamespaceManagement(a)
+	err = r.reconcileNamespaceManagement(a, reqState)
 	assert.NoError(t, err)
 
-	assert.Len(t, r.ManagedNamespaces.Items, 1)
-	assert.Equal(t, "argocd", r.ManagedNamespaces.Items[0].Name)
+	assert.Len(t, reqState.ManagedNamespaces.Items, 1)
+	assert.Equal(t, "argocd", reqState.ManagedNamespaces.Items[0].Name)
 
 	err = r.Get(context.TODO(), types.NamespacedName{
 		Name:      nm.Name,
@@ -475,6 +480,7 @@ func TestReconcileNamespaceManagement_StatusUpdateFailure(t *testing.T) {
 	baseClient := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	cl := &statusUpdateFailClient{Client: baseClient}
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
 	err := r.Create(context.Background(), nm)
 	assert.NoError(t, err)
@@ -482,7 +488,7 @@ func TestReconcileNamespaceManagement_StatusUpdateFailure(t *testing.T) {
 	os.Setenv(common.EnableManagedNamespace, "true")
 	defer os.Unsetenv(common.EnableManagedNamespace)
 
-	err = r.reconcileNamespaceManagement(a)
+	err = r.reconcileNamespaceManagement(a, reqState)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "status update failed for namespace managed-ns")
 	assert.Contains(t, err.Error(), "simulated status update failure")
@@ -531,11 +537,12 @@ func TestReconcileNamespaceManagement_DeduplicateNamespaces(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
 	err := r.Create(context.Background(), nm)
 	assert.NoError(t, err)
 
-	r.ManagedNamespaces = &corev1.NamespaceList{
+	reqState.ManagedNamespaces = &corev1.NamespaceList{
 		Items: []corev1.Namespace{
 			{ObjectMeta: metav1.ObjectMeta{Name: "ns-1"}},
 		},
@@ -544,11 +551,11 @@ func TestReconcileNamespaceManagement_DeduplicateNamespaces(t *testing.T) {
 	os.Setenv(common.EnableManagedNamespace, "true")
 	defer os.Unsetenv(common.EnableManagedNamespace)
 
-	err = r.reconcileNamespaceManagement(a)
+	err = r.reconcileNamespaceManagement(a, reqState)
 	assert.NoError(t, err)
 
 	count := 0
-	for _, ns := range r.ManagedNamespaces.Items {
+	for _, ns := range reqState.ManagedNamespaces.Items {
 		if ns.Name == "ns-1" {
 			count++
 		}

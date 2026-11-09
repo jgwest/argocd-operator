@@ -63,6 +63,7 @@ func makeTestReconciler(client client.Client, sch *runtime.Scheme, k8sClient kub
 		LocalUsers: &LocalUsersInfo{
 			tokenRenewalTimers: map[string]*tokenRenewalTimer{},
 		},
+		ActiveInstanceMap: map[string]string{},
 	}
 }
 
@@ -277,30 +278,30 @@ func makeTestDexResources() *corev1.ResourceRequirements {
 	}
 }
 
-func createNamespace(r *ReconcileArgoCD, n string, managedBy string) error {
+func createNamespace(r *ReconcileArgoCD, reqState *RequestState, n string, managedBy string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: n}}
 	if managedBy != "" {
 		ns.Labels = map[string]string{common.ArgoCDManagedByLabel: managedBy}
 	}
 
-	if r.ManagedNamespaces == nil {
-		r.ManagedNamespaces = &corev1.NamespaceList{}
+	if reqState.ManagedNamespaces == nil {
+		reqState.ManagedNamespaces = &corev1.NamespaceList{}
 	}
-	r.ManagedNamespaces.Items = append(r.ManagedNamespaces.Items, *ns)
+	reqState.ManagedNamespaces.Items = append(reqState.ManagedNamespaces.Items, *ns)
 
 	return r.Create(context.TODO(), ns)
 }
 
-func createNamespaceManagedByClusterArgoCDLabel(r *ReconcileArgoCD, n string, managedBy string) error {
+func createNamespaceManagedByClusterArgoCDLabel(r *ReconcileArgoCD, reqState *RequestState, n string, managedBy string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: n}}
 	if managedBy != "" {
 		ns.Labels = map[string]string{common.ArgoCDManagedByClusterArgoCDLabel: managedBy}
 	}
 
-	if r.ManagedSourceNamespaces == nil {
-		r.ManagedSourceNamespaces = make(map[string]string)
+	if reqState.ManagedSourceNamespaces == nil {
+		reqState.ManagedSourceNamespaces = make(map[string]any)
 	}
-	r.ManagedSourceNamespaces[ns.Name] = ""
+	reqState.ManagedSourceNamespaces[ns.Name] = ""
 
 	return r.Create(context.TODO(), ns)
 }

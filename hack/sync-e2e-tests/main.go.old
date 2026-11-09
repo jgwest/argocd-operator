@@ -1,0 +1,326 @@
+package main
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+type direction string
+
+const (
+	GToA direction = "gtoa"
+	AToG direction = "atog"
+)
+
+func main() {
+
+	if len(os.Args) != 2 {
+		fmt.Println("args: (path to modify)")
+		return
+	}
+
+	pathToModify := os.Args[1]
+
+	err := filepath.WalkDir(pathToModify, func(path string, d fs.DirEntry, err error) error {
+
+		if strings.Contains(path, "..") {
+			return fmt.Errorf("no path traversal")
+		}
+
+		// Avoid walking any absolute paths which do not contain either gitops-operator or argocd-operator
+		if !(strings.Contains(path, "gitops-operator") || strings.Contains(path, "argocd-operator")) {
+			return fmt.Errorf("unrecognized path")
+		}
+
+		if !strings.HasPrefix(path, pathToModify) {
+			return fmt.Errorf("missing prefix")
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		fmt.Println(path)
+
+		if err := stripImportsFromFile(path); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+}
+
+func stripImportsFromFile(path string) error {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	var newContents string
+
+	importSeen := false
+	for _, line := range strings.Split(string(contents), "\n") {
+
+		if strings.HasPrefix(line, "import (") {
+			newContents += line + "\n"
+			importSeen = true
+			continue
+		} else if importSeen && strings.HasPrefix(line, ")") {
+
+			newContents += line + "\n"
+			importSeen = false
+			continue
+		}
+
+		if importSeen {
+
+			line = ""
+
+		} else {
+			newContents += line + "\n"
+		}
+	}
+
+	newContents = strings.TrimSuffix(newContents, "\n")
+
+	if err := os.WriteFile(path, ([]byte)(newContents), 0600); err != nil {
+		fmt.Println("unable to write", path, err)
+		return err
+	}
+
+	return nil
+}
+
+// --------------------------
+
+func main2() {
+
+	if len(os.Args) != 3 {
+		fmt.Println("args: (path to modify) ['gtoa' or 'atog']")
+		return
+	}
+
+	pathToModify := os.Args[1]
+	directionStr := os.Args[2]
+	directionStr = strings.TrimSpace(directionStr)
+	directionStr = strings.ToLower(directionStr)
+
+	var direction direction
+
+	switch directionStr {
+	case "gtoa":
+		direction = GToA
+	case "atog":
+		direction = AToG
+	default:
+		fmt.Println("unrecognized direction string:", directionStr)
+		return
+	}
+
+	err := filepath.WalkDir(pathToModify, func(path string, d fs.DirEntry, err error) error {
+
+		if strings.Contains(path, "..") {
+			return fmt.Errorf("no path traversal")
+		}
+
+		if !strings.HasPrefix(path, pathToModify) {
+			return fmt.Errorf("missing prefix")
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		fmt.Println(path)
+
+		if err := replaceFileContents(path, direction); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
+func replaceFileContents(path string, dir direction) error {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	var importsList []string
+
+	var newContents string
+
+	importSeen := false
+	for _, line := range strings.Split(string(contents), "\n") {
+
+		if strings.HasPrefix(line, "import (") {
+			newContents += line + "\n"
+			importSeen = true
+			continue
+		} else if importSeen && strings.HasPrefix(line, ")") {
+
+			importsList = sortImportsList2(importsList)
+
+			for _, importLine := range importsList {
+				newContents += importLine + "\n"
+			}
+
+			newContents += line + "\n"
+			importSeen = false
+			continue
+		}
+
+		if importSeen {
+
+			if dir == AToG {
+				line = strings.ReplaceAll(line,
+					"github.com/argoproj-labs/argocd-operator/tests/ginkgo", "github.com/redhat-developer/gitops-operator/test/openshift/e2e/ginkgo")
+
+			} else {
+				line = strings.ReplaceAll(line, "github.com/redhat-developer/gitops-operator/test/openshift/e2e/ginkgo",
+					"github.com/argoproj-labs/argocd-operator/tests/ginkgo")
+			}
+
+			importsList = append(importsList, line)
+
+		} else {
+			newContents += line + "\n"
+		}
+	}
+
+	newContents = strings.TrimSuffix(newContents, "\n")
+
+	if err := os.WriteFile(path, ([]byte)(newContents), 0600); err != nil {
+		fmt.Println("unable to write", path, err)
+		return err
+	}
+
+	return nil
+}
+
+func sortImportsList2(inputList []string) []string {
+
+	groups := [][]string{}
+
+	currGroup := make([]string, 0)
+	for _, str := range inputList {
+
+		if strings.TrimSpace(str) == "" {
+
+			if len(currGroup) > 0 {
+				groups = append(groups, currGroup)
+			}
+
+			currGroup = make([]string, 0)
+		} else {
+			currGroup = append(currGroup, str)
+		}
+
+	}
+
+	if len(currGroup) > 0 {
+		groups = append(groups, currGroup)
+	}
+
+	res := make([]string, 0)
+	for x := range groups {
+		group := groups[x]
+
+		group = sortImportsList(group)
+
+		res = append(res, group...)
+
+		if x != len(groups)-1 {
+			res = append(res, "")
+		}
+
+	}
+	return res
+
+}
+
+func sortImportsList(inputList []string) []string {
+
+	standardPkgs := []string{}
+	nonStandardPkgs := []string{}
+	for x := range inputList {
+		in := inputList[x]
+
+		if strings.TrimSpace(in) == "" {
+			continue
+		}
+
+		if strings.Contains(in, "/") {
+			nonStandardPkgs = append(nonStandardPkgs, in)
+		} else {
+			standardPkgs = append(standardPkgs, in)
+		}
+	}
+
+	sort.Strings(standardPkgs)
+
+	sort.Sort(ByPackage(nonStandardPkgs))
+
+	if len(standardPkgs) > 0 && len(nonStandardPkgs) > 0 {
+		nonStandardPkgs = append([]string{""}, nonStandardPkgs...)
+	}
+
+	return append(standardPkgs, nonStandardPkgs...)
+
+}
+
+type ByPackage []string
+
+func (s ByPackage) Len() int {
+	return len(s)
+}
+
+func (s ByPackage) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s ByPackage) Less(i, j int) bool {
+
+	one := extractPackage(s[i])
+	two := extractPackage(s[j])
+
+	return one < two
+}
+
+func extractPackage(in string) string {
+	index := strings.Index(in, "\"")
+	if index == -1 {
+		return in
+	}
+	res := in[index+1:]
+	res = strings.TrimSpace(res)
+	res = res[:len(res)-1]
+
+	return res
+}

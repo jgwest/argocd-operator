@@ -34,13 +34,14 @@ func TestReconcileArgoCD_reconcileRole(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
-	assert.NoError(t, createNamespace(r, "newNamespaceTest", a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, "newNamespaceTest", a.Namespace))
 
 	workloadIdentifier := common.ArgoCDApplicationControllerComponent
 	expectedRules := policyRuleForApplicationController()
-	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, workloadIdentifier)
@@ -58,7 +59,7 @@ func TestReconcileArgoCD_reconcileRole(t *testing.T) {
 
 	// Check if the RedisHa policy rules are overwritten to Application Controller
 	// policy rules by the reconciler
-	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledRole))
 	assert.Equal(t, expectedRules, reconciledRole.Rules)
@@ -74,9 +75,10 @@ func TestReconcileArgoCD_reconcileRole_for_new_namespace(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
-	assert.NoError(t, createNamespace(r, "newNamespaceTest", a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, "newNamespaceTest", a.Namespace))
 
 	// only 1 role for the Argo CD instance namespace will be created
 	expectedNumberOfRoles := 1
@@ -84,21 +86,21 @@ func TestReconcileArgoCD_reconcileRole_for_new_namespace(t *testing.T) {
 	workloadIdentifier := common.ArgoCDDexServerComponent
 	expectedRoleNamespace := a.Namespace
 	expectedDexServerRules := policyRuleForDexServer()
-	dexRoles, err := r.reconcileRole(workloadIdentifier, expectedDexServerRules, a)
+	dexRoles, err := r.reconcileRole(workloadIdentifier, expectedDexServerRules, a, reqState)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedNumberOfRoles, len(dexRoles))
 	assert.Equal(t, expectedRoleNamespace, dexRoles[0].Namespace)
 	// check no redisHa role is created for the new namespace with managed-by label
 	workloadIdentifier = common.ArgoCDRedisHAComponent
 	expectedRedisHaRules := policyRuleForRedisHa(r.Client)
-	redisHaRoles, err := r.reconcileRole(workloadIdentifier, expectedRedisHaRules, a)
+	redisHaRoles, err := r.reconcileRole(workloadIdentifier, expectedRedisHaRules, a, reqState)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedNumberOfRoles, len(redisHaRoles))
 	assert.Equal(t, expectedRoleNamespace, redisHaRoles[0].Namespace)
 	// check no redis role is created for the new namespace with managed-by label
 	workloadIdentifier = common.ArgoCDRedisComponent
 	expectedRedisRules := policyRuleForRedis(r.Client)
-	redisRoles, err := r.reconcileRole(workloadIdentifier, expectedRedisRules, a)
+	redisRoles, err := r.reconcileRole(workloadIdentifier, expectedRedisRules, a, reqState)
 	assert.NoError(t, err)
 	assert.Equal(t, expectedNumberOfRoles, len(redisRoles))
 	assert.Equal(t, expectedRoleNamespace, redisRoles[0].Namespace)
@@ -219,12 +221,14 @@ func TestReconcileArgoCD_reconcileRoleForApplicationSourceNamespaces(t *testing.
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
-	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, sourceNamespace, a.Namespace))
+	reqState := &RequestState{}
+
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
+	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, reqState, sourceNamespace, a.Namespace))
 
 	workloadIdentifier := common.ArgoCDServerComponent + "-custom"
 	expectedRules := policyRuleForServerApplicationSourceNamespaces()
-	err := r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a)
+	err := r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := getRoleNameForApplicationSourceNamespaces(sourceNamespace, a)
@@ -243,7 +247,7 @@ func TestReconcileArgoCD_reconcileRoleForApplicationSourceNamespaces(t *testing.
 			SourceNamespaces: []string{"tmp", sourceNamespace},
 		},
 	}
-	err = r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a)
+	err = r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 	reconciledRole = &v1.Role{}
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: sourceNamespace}, reconciledRole))
@@ -258,7 +262,7 @@ func TestReconcileArgoCD_reconcileRoleForApplicationSourceNamespaces(t *testing.
 			SourceNamespaces: []string{"tmp"},
 		},
 	}
-	err = r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a)
+	err = r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 	reconciledRole = &v1.Role{}
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: sourceNamespace}, reconciledRole))
@@ -284,10 +288,11 @@ func TestReconcileRoleForApplicationSourceNamespaces_TerminatingNamespace(t *tes
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
-	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, terminatingNamespace, a.Namespace))
-	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, activeNamespace, a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
+	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, reqState, terminatingNamespace, a.Namespace))
+	assert.NoError(t, createNamespaceManagedByClusterArgoCDLabel(r, reqState, activeNamespace, a.Namespace))
 
 	terminatingNS := &corev1.Namespace{}
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: terminatingNamespace}, terminatingNS))
@@ -299,7 +304,7 @@ func TestReconcileRoleForApplicationSourceNamespaces_TerminatingNamespace(t *tes
 
 	workloadIdentifier := common.ArgoCDServerComponent + "-custom"
 	expectedRules := policyRuleForServerApplicationSourceNamespaces()
-	assert.NoError(t, r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a))
+	assert.NoError(t, r.reconcileRoleForApplicationSourceNamespaces(workloadIdentifier, expectedRules, a, reqState))
 
 	reconciledRole := &v1.Role{}
 	terminatingRoleName := getRoleNameForApplicationSourceNamespaces(terminatingNamespace, a)
@@ -321,16 +326,17 @@ func TestReconcileArgoCD_RoleHooks(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 	Register(testRoleHook)
 
-	roles, err := r.reconcileRole(common.ArgoCDApplicationControllerComponent, []v1.PolicyRule{}, a)
+	roles, err := r.reconcileRole(common.ArgoCDApplicationControllerComponent, []v1.PolicyRule{}, a, reqState)
 	role := roles[0]
 	assert.NoError(t, err)
 	assert.Equal(t, role.Rules, testRules())
 
-	roles, err = r.reconcileRole("test", []v1.PolicyRule{}, a)
+	roles, err = r.reconcileRole("test", []v1.PolicyRule{}, a, reqState)
 	role = roles[0]
 	assert.NoError(t, err)
 	assert.Equal(t, role.Rules, []v1.PolicyRule{})
@@ -346,13 +352,14 @@ func TestReconcileArgoCD_reconcileRole_custom_role(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
-	assert.NoError(t, createNamespace(r, "namespace-custom-role", a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, "namespace-custom-role", a.Namespace))
 
 	workloadIdentifier := "argocd-application-controller"
 	expectedRules := policyRuleForApplicationController()
-	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, workloadIdentifier)
@@ -367,7 +374,7 @@ func TestReconcileArgoCD_reconcileRole_custom_role(t *testing.T) {
 	// set the custom role as env variable
 	t.Setenv(common.ArgoCDControllerClusterRoleEnvName, "custom-role")
 
-	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	// check if the default cluster roles are removed
@@ -393,15 +400,16 @@ func TestReconcileRoles_ManagedTerminatingNamespace(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	// Create a managed namespace
-	assert.NoError(t, createNamespace(r, "managedNS", a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, "managedNS", a.Namespace))
 
 	workloadIdentifier := common.ArgoCDApplicationControllerComponent
 	expectedRules := policyRuleForApplicationController()
-	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err := r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, workloadIdentifier)
@@ -438,7 +446,7 @@ func TestReconcileRoles_ManagedTerminatingNamespace(t *testing.T) {
 	_ = r.Get(context.TODO(), types.NamespacedName{Name: "managedNS"}, newNS)
 	assert.NotEqual(t, newNS.DeletionTimestamp, nil)
 
-	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	// Verify that the roles are deleted
@@ -446,10 +454,10 @@ func TestReconcileRoles_ManagedTerminatingNamespace(t *testing.T) {
 	assert.ErrorContains(t, err, "not found")
 
 	// Create another managed namespace
-	assert.NoError(t, createNamespace(r, "managedNS2", a.Namespace))
+	assert.NoError(t, createNamespace(r, reqState, "managedNS2", a.Namespace))
 
 	// Check if roles are created for the new namespace as well
-	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a)
+	_, err = r.reconcileRole(workloadIdentifier, expectedRules, a, reqState)
 	assert.NoError(t, err)
 
 	assert.NoError(t, r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: "managedNS2"}, reconciledRole))
@@ -1244,12 +1252,13 @@ func TestReconcileArgoCD_reconcileRole_enable_controller_role(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	componentName := common.ArgoCDApplicationControllerComponent
 
-	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, componentName)
@@ -1259,7 +1268,7 @@ func TestReconcileArgoCD_reconcileRole_enable_controller_role(t *testing.T) {
 	flag := false
 	a.Spec.Controller.Enabled = &flag
 
-	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	err = r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledRole)
@@ -1277,12 +1286,13 @@ func TestReconcileArgoCD_reconcileRole_enable_redis_role(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	componentName := common.ArgoCDRedisComponent
 
-	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, componentName)
@@ -1292,7 +1302,7 @@ func TestReconcileArgoCD_reconcileRole_enable_redis_role(t *testing.T) {
 	flag := false
 	a.Spec.Redis.Enabled = &flag
 
-	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	err = r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledRole)
@@ -1310,12 +1320,13 @@ func TestReconcileArgoCD_reconcileRole_enable_server_role(t *testing.T) {
 	sch := makeTestReconcilerScheme(argoproj.AddToScheme, promoter.AddToScheme, apiregistrationv1.AddToScheme)
 	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
 	r := makeTestReconciler(cl, sch, testclient.NewSimpleClientset())
+	reqState := &RequestState{}
 
-	assert.NoError(t, createNamespace(r, a.Namespace, ""))
+	assert.NoError(t, createNamespace(r, reqState, a.Namespace, ""))
 
 	componentName := common.ArgoCDServerComponent
 
-	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err := r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	expectedName := fmt.Sprintf("%s-%s", a.Name, componentName)
@@ -1325,7 +1336,7 @@ func TestReconcileArgoCD_reconcileRole_enable_server_role(t *testing.T) {
 	flag := false
 	a.Spec.Server.Enabled = &flag
 
-	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a)
+	_, err = r.reconcileRole(componentName, []v1.PolicyRule{}, a, reqState)
 	assert.NoError(t, err)
 
 	err = r.Get(context.TODO(), types.NamespacedName{Name: expectedName, Namespace: a.Namespace}, reconciledRole)

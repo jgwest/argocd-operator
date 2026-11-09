@@ -48,7 +48,7 @@ const (
 
 // getArgoApplicationSetCommand will return the command for the ArgoCD ApplicationSet component.
 // It returns an error when ApplicationSet source namespaces or apps source namespaces cannot be retrieved
-func (r *ReconcileArgoCD) getArgoApplicationSetCommand(cr *argoproj.ArgoCD) ([]string, error) {
+func (r *ReconcileArgoCD) getArgoApplicationSetCommand(cr *argoproj.ArgoCD, reqState *RequestState) ([]string, error) {
 	cmd := make([]string, 0)
 
 	cmd = append(cmd, "entrypoint.sh")
@@ -86,7 +86,7 @@ func (r *ReconcileArgoCD) getArgoApplicationSetCommand(cr *argoproj.ArgoCD) ([]s
 		if err != nil {
 			return nil, fmt.Errorf("failed to get ApplicationSet source namespaces: %w", err)
 		}
-		appsNamespaces, err := r.getSourceNamespaces(cr)
+		appsNamespaces, err := r.getSourceNamespaces(cr, reqState)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get apps source namespaces: %w", err)
 		}
@@ -121,7 +121,7 @@ func (r *ReconcileArgoCD) getArgoApplicationSetCommand(cr *argoproj.ArgoCD) ([]s
 	return cmd, nil
 }
 
-func (r *ReconcileArgoCD) reconcileApplicationSetController(cr *argoproj.ArgoCD) error {
+func (r *ReconcileArgoCD) reconcileApplicationSetController(cr *argoproj.ArgoCD, reqState *RequestState) error {
 
 	log.Info("reconciling applicationset serviceaccounts")
 	sa, err := r.reconcileApplicationSetServiceAccount(cr)
@@ -141,7 +141,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetController(cr *argoproj.ArgoCD)
 	}
 
 	log.Info("reconciling applicationset deployments")
-	if err := r.reconcileApplicationSetDeployment(cr, sa); err != nil {
+	if err := r.reconcileApplicationSetDeployment(cr, sa, reqState); err != nil {
 		return err
 	}
 
@@ -164,13 +164,13 @@ func (r *ReconcileArgoCD) reconcileApplicationSetController(cr *argoproj.ArgoCD)
 
 	// reconcile source namespace roles & rolebindings
 	log.Info("reconciling applicationset roles & rolebindings in source namespaces")
-	if err := r.reconcileApplicationSetSourceNamespacesResources(cr); err != nil {
+	if err := r.reconcileApplicationSetSourceNamespacesResources(cr, reqState); err != nil {
 		return err
 	}
 
 	// remove resources for namespaces not part of SourceNamespaces
 	log.Info("performing cleanup for applicationset source namespaces")
-	if err := r.removeUnmanagedApplicationSetSourceNamespaceResources(cr); err != nil {
+	if err := r.removeUnmanagedApplicationSetSourceNamespaceResources(cr, reqState); err != nil {
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetController(cr *argoproj.ArgoCD)
 }
 
 // reconcileApplicationControllerDeployment will ensure the Deployment resource is present for the ArgoCD Application Controller component.
-func (r *ReconcileArgoCD) reconcileApplicationSetDeployment(cr *argoproj.ArgoCD, sa *corev1.ServiceAccount) error {
+func (r *ReconcileArgoCD) reconcileApplicationSetDeployment(cr *argoproj.ArgoCD, sa *corev1.ServiceAccount, reqState *RequestState) error {
 
 	existing := newDeploymentWithSuffix("applicationset-controller", "controller", cr)
 
@@ -286,7 +286,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetDeployment(cr *argoproj.ArgoCD,
 		maps.Copy(deploy.Spec.Template.Labels, cr.Spec.ApplicationSet.Labels)
 	}
 
-	appSetContainer, err := r.applicationSetContainer(cr, addSCMGitlabVolumeMount)
+	appSetContainer, err := r.applicationSetContainer(cr, addSCMGitlabVolumeMount, reqState)
 	if err != nil {
 		return err
 	}
@@ -392,7 +392,7 @@ func identifyDeploymentDifference(x appsv1.Deployment, y appsv1.Deployment) stri
 	return ""
 }
 
-func (r *ReconcileArgoCD) applicationSetContainer(cr *argoproj.ArgoCD, addSCMGitlabVolumeMount bool) (corev1.Container, error) {
+func (r *ReconcileArgoCD) applicationSetContainer(cr *argoproj.ArgoCD, addSCMGitlabVolumeMount bool, reqState *RequestState) (corev1.Container, error) {
 	// Global proxy env vars go first
 	appSetEnv := []corev1.EnvVar{
 		{
@@ -459,7 +459,7 @@ func (r *ReconcileArgoCD) applicationSetContainer(cr *argoproj.ArgoCD, addSCMGit
 		})
 	}
 
-	cmd, err := r.getArgoApplicationSetCommand(cr)
+	cmd, err := r.getArgoApplicationSetCommand(cr, reqState)
 	if err != nil {
 		return corev1.Container{}, err
 	}
@@ -776,7 +776,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetClusterRoleBinding(cr *argoproj
 
 // reconcileApplicationSetSourceNamespacesResources creates role & rolebinding in target source namespaces for appset controller
 // Appset resources are only created if target source ns is subset of apps source namespaces
-func (r *ReconcileArgoCD) reconcileApplicationSetSourceNamespacesResources(cr *argoproj.ArgoCD) error {
+func (r *ReconcileArgoCD) reconcileApplicationSetSourceNamespacesResources(cr *argoproj.ArgoCD, reqState *RequestState) error {
 
 	var reconciliationErrors []error
 
@@ -802,7 +802,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetSourceNamespacesResources(cr *a
 	}
 
 	// source ns should be part of app-in-any-ns
-	appsNamespaces, err := r.getSourceNamespaces(cr)
+	appsNamespaces, err := r.getSourceNamespaces(cr, reqState)
 	if err != nil {
 		return fmt.Errorf("failed to get apps source namespaces: %w", err)
 	}
@@ -830,7 +830,7 @@ func (r *ReconcileArgoCD) reconcileApplicationSetSourceNamespacesResources(cr *a
 			log.Info(fmt.Sprintf("Skipping reconciling resources for namespace %s as it is already managed-by namespace %s.", namespace.Name, value))
 			// remove any source namespace resources
 			if val, ok1 := namespace.Labels[common.ArgoCDApplicationSetManagedByClusterArgoCDLabel]; ok1 && val != cr.Namespace {
-				delete(r.ManagedApplicationSetSourceNamespaces, namespace.Name)
+				delete(reqState.ManagedApplicationSetSourceNamespaces, namespace.Name)
 				if err := r.cleanupUnmanagedApplicationSetSourceNamespaceResources(cr, namespace.Name); err != nil {
 					log.Error(err, fmt.Sprintf("error cleaning up resources for namespace %s", namespace.Name))
 				}
@@ -898,11 +898,11 @@ func (r *ReconcileArgoCD) reconcileApplicationSetSourceNamespacesResources(cr *a
 
 		// appset permissions for argocd server in source namespaces are handled by apps-in-any-ns code
 
-		if _, ok := r.ManagedApplicationSetSourceNamespaces[sourceNamespace]; !ok {
-			if r.ManagedApplicationSetSourceNamespaces == nil {
-				r.ManagedApplicationSetSourceNamespaces = make(map[string]string)
+		if _, ok := reqState.ManagedApplicationSetSourceNamespaces[sourceNamespace]; !ok {
+			if reqState.ManagedApplicationSetSourceNamespaces == nil {
+				reqState.ManagedApplicationSetSourceNamespaces = make(map[string]string)
 			}
-			r.ManagedApplicationSetSourceNamespaces[sourceNamespace] = ""
+			reqState.ManagedApplicationSetSourceNamespaces[sourceNamespace] = ""
 		}
 	}
 
@@ -1089,10 +1089,10 @@ func getResourceNameForApplicationSetSourceNamespaces(cr *argoproj.ArgoCD) strin
 
 // removeUnmanagedApplicationSetSourceNamespaceResources cleansup resources from ApplicationSetSourceNamespaces if namespace is not managed by argocd instance.
 // ManagedApplicationSetSourceNamespaces var keeps track of namespaces with appset resources.
-func (r *ReconcileArgoCD) removeUnmanagedApplicationSetSourceNamespaceResources(cr *argoproj.ArgoCD) error {
+func (r *ReconcileArgoCD) removeUnmanagedApplicationSetSourceNamespaceResources(cr *argoproj.ArgoCD, reqState *RequestState) error {
 
 	// For each namespace the ArgoCDApplicationSetManagedByClusterArgoCDLabel label.
-	for appsetsInAnyNamespaceLabelledNS := range r.ManagedApplicationSetSourceNamespaces {
+	for appsetsInAnyNamespaceLabelledNS := range reqState.ManagedApplicationSetSourceNamespaces {
 
 		// Retrieve the namespace object in the 'managed application source namespaces' list
 		ns := &corev1.Namespace{
@@ -1136,7 +1136,7 @@ func (r *ReconcileArgoCD) removeUnmanagedApplicationSetSourceNamespaceResources(
 			if cr.Spec.ApplicationSet != nil && cr.GetDeletionTimestamp() == nil {
 
 				// namespace is valid if it matches any pattern in cr.Spec.ApplicationSet.SourceNamespaces AND is in cr.Spec.SourceNamespaces
-				appsNamespaces, err := r.getSourceNamespaces(cr)
+				appsNamespaces, err := r.getSourceNamespaces(cr, reqState)
 				if err != nil {
 					return err
 				}
@@ -1156,7 +1156,7 @@ func (r *ReconcileArgoCD) removeUnmanagedApplicationSetSourceNamespaceResources(
 				log.Error(err, fmt.Sprintf("error cleaning up applicationset resources for namespace %s", appsetsInAnyNamespaceLabelledNS))
 				continue
 			}
-			delete(r.ManagedApplicationSetSourceNamespaces, appsetsInAnyNamespaceLabelledNS)
+			delete(reqState.ManagedApplicationSetSourceNamespaces, appsetsInAnyNamespaceLabelledNS)
 		}
 	}
 	return nil
@@ -1216,9 +1216,9 @@ func (r *ReconcileArgoCD) cleanupUnmanagedApplicationSetSourceNamespaceResources
 
 // setManagedApplicationSetSourceNamespaces populates ManagedApplicationSetSourceNamespaces var with namespaces
 // with "argocd.argoproj.io/applicationset-managed-by-cluster-argocd" label.
-func (r *ReconcileArgoCD) setManagedApplicationSetSourceNamespaces(cr *argoproj.ArgoCD) error {
-	if r.ManagedApplicationSetSourceNamespaces == nil {
-		r.ManagedApplicationSetSourceNamespaces = make(map[string]string)
+func (r *ReconcileArgoCD) setManagedApplicationSetSourceNamespaces(cr *argoproj.ArgoCD, reqState *RequestState) error {
+	if reqState.ManagedApplicationSetSourceNamespaces == nil {
+		reqState.ManagedApplicationSetSourceNamespaces = make(map[string]string)
 	}
 	namespaces := &corev1.NamespaceList{}
 	listOption := client.MatchingLabels{
@@ -1231,7 +1231,7 @@ func (r *ReconcileArgoCD) setManagedApplicationSetSourceNamespaces(cr *argoproj.
 	}
 
 	for _, namespace := range namespaces.Items {
-		r.ManagedApplicationSetSourceNamespaces[namespace.Name] = ""
+		reqState.ManagedApplicationSetSourceNamespaces[namespace.Name] = ""
 	}
 
 	return nil
